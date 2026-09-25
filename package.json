@@ -1,10 +1,21 @@
 {
-  "name": "pixel-strike-3d",
-  "version": "0.2.0",
-  "description": "像素风格 3D 射击游戏（仿 Pixel Gun 3D）—— Three.js 体素 FPS",
+  "name": "the-finals-voxel-tdm",
+  "version": "0.1.0",
   "private": true,
+  "description": "THE FINALS 风格 5v5 TDM · Minecraft/Pixel Gun 3D 体素美术 · Three.js 网页 FPS 原型",
+  "type": "module",
   "scripts": {
-    "start": "node serve.js",
-    "dev": "node serve.js"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.169.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
   }
 }
