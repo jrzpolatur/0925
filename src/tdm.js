@@ -273,13 +273,8 @@ export class Bot {
       if (this.onGround) this.vel.y = 11.6;
     }
 
-    this.vel.y -= 30 * dt;
-    this.pos.y += this.vel.y * dt;
-    const ground = this.world.groundBelow(this.pos.x, this.pos.y + 0.5, this.pos.z, 6);
-    this.onGround = false;
-    if (this.vel.y <= 0 && ground > -40 && this.pos.y <= ground) {
-      this.pos.y = ground; this.vel.y = 0; this.onGround = true;
-    }
+    // 用 AABB 解析：会撞头、会正确落地，不会从方块内部"电梯"穿出去
+    this.onGround = this.world.stepVertical(this.pos, this.vel, this.radius, this.height, dt);
     if (this.pos.y < -20) this.pos.set(0, 4, 0);
 
     // ---- 开火
@@ -310,7 +305,7 @@ export class Bot {
 
     this._animate(dt, Math.hypot(this.vel.x, this.vel.z));
     this.obj.position.copy(this.pos);
-    this.obj.rotation.y = this.face;
+    this.obj.rotation.y = this.face + Math.PI;   // 模型正面 -Z，face 以 +Z 为基准
     this.updateBoxes();
   }
 
@@ -320,7 +315,7 @@ export class Bot {
     this.parts.legL.rotation.x = sw * 0.85;
     this.parts.legR.rotation.x = -sw * 0.85;
     this.parts.armL.rotation.x = -sw * 0.6;
-    this.parts.armR.rotation.x = -1.32 + Math.sin(this.walkPhase * 2.2) * 0.06;
+    this.parts.armR.rotation.x = 1.32 + Math.sin(this.walkPhase * 2.2) * 0.06;   // 正角度 = 向正面抬臂
     this.parts.head.rotation.y = Math.sin(this.walkPhase * 0.6) * 0.12;
   }
 }
@@ -539,7 +534,10 @@ export class TeamDeathmatch {
       if (d > radius) continue;
       const k = 1 - d / radius;
       b.lastAttacker = attacker;
-      if (b.damage(damage * k, null, new THREE.Vector3(0, 0.4, 0).normalize())) this._onDeath(b, attacker);
+      const dmg = damage * k;
+      const killed = b.damage(dmg, null, new THREE.Vector3(0, 0.4, 0).normalize());
+      if (attacker === this.player) this.onPlayerHurt?.(b, dmg, killed);
+      if (killed) this._onDeath(b, attacker);
     }
     const dp = this.player.pos.distanceTo(pos);
     if (dp < radius && atkTeam !== this.playerTeam) {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { World, B } from './world.js';
 import { Player } from './player.js';
-import { WeaponSystem, WEAPONS, Grenades } from './weapons.js';
+import { rayBox, WeaponSystem, WEAPONS, Grenades } from './weapons.js';
 import { EnemyManager } from './enemy.js';
 import { Particles } from './particles.js';
 import { Hud } from './hud.js';
@@ -111,10 +111,27 @@ particles.onCoin = () => {
 const _coinPos = new THREE.Vector3();
 const _coinTarget = new THREE.Vector3();   // 金币的吸附点，每帧更新为玩家眼睛位置
 
+const _aimO = new THREE.Vector3(), _aimD = new THREE.Vector3();
+/** 准星正对着的敌人（考虑墙体遮挡），没有则为 null */
+function aimedHostile() {
+  player.eyePos(_aimO);
+  player.lookDir(_aimD);
+  let best = null, bestT = 120;
+  for (const t of hostiles()) {
+    const a = rayBox(_aimO, _aimD, t.bodyBox);
+    const b = rayBox(_aimO, _aimD, t.headBox);
+    const tt = Math.min(a ?? Infinity, b ?? Infinity);
+    if (tt < bestT) { bestT = tt; best = t; }
+  }
+  if (best && world.raycast(_aimO, _aimD, bestT)) return null;
+  return best;
+}
+
 /** 玩家对目标造成伤害（统一处理计分） */
 function hurtTarget(target, amount, dir, head = false, point = null) {
   const killed = target.damage(amount, point, dir, head, particles);
   hud.hitEnemy(target, amount, head);
+  hud.hitmarker(killed, head, amount);
   // 命中爆金币（每 0.12s 最多一次，避免刷屏）
   if (coinBurstT <= 0) {
     coinBurstT = 0.12;
@@ -135,15 +152,16 @@ function grantKill(e, head) {
   kills++;
   if (head) headshots++;
   hud.killFeed(`<b>+${gain}</b> 击杀 ${e.type.name}${head ? ' [爆头]' : ''}`);
+  hud.killBanner(e.type.name, head);
   hud.addFloater('+' + gain, e.pos.clone().setY(e.pos.y + 1.9), '#ffcc33', 15);
   maybeDrop(e.pos);
 }
 
 /** 玩家受伤 */
-function hurtPlayer(amount) {
+function hurtPlayer(amount, attacker = null) {
   if (state !== 'playing' || player.dead) return;
   const died = player.damage(amount);
-  hud.damageFlash();
+  hud.damageFlash(attacker?.pos ?? null, player);
   sfx.hurt();
   // 被命中：从身上抖落金币
   const n = Math.min(6, 2 + Math.round(amount / 12));
@@ -170,14 +188,18 @@ function hurtPlayer(amount) {
 const enemies = new EnemyManager({
   scene, world, particles, sfx, player,
   onKill: (e, head) => grantKill(e, head),
-  onPlayerDamage: (amount) => hurtPlayer(amount),
+  onPlayerDamage: (amount, attacker) => hurtPlayer(amount, attacker),
 });
 
 const tdm = new TeamDeathmatch({
   scene, world, particles, sfx, player, playerTeam: PLAYER_TEAM, killTarget: 40,
 });
 tdm.onEvent = (html) => hud.killFeed(html);
-tdm.onPlayerHit = (amount) => hurtPlayer(amount);
+tdm.onPlayerHit = (amount, attacker) => hurtPlayer(amount, attacker);
+// 爆炸伤害到敌人 → 同样给命中反馈
+const explosionFeedback = (t, dmg, killed) => { hud.hitEnemy(t, dmg, false); hud.hitmarker(killed, false, dmg); };
+enemies.onHurt = explosionFeedback;
+tdm.onPlayerHurt = explosionFeedback;
 tdm.onBotGrenade = (bot, tgt) => {
   const origin = bot.pos.clone().setY(bot.pos.y + 1.4);
   const dir = tgt.clone().sub(origin).normalize();
@@ -240,16 +262,20 @@ function coneHit(origin, dir, range, arc, damage, onEach) {
   return n;
 }
 
+let shotDamage = 0;   // 本次扣扳机累计伤害（霰弹多弹丸）
 const weapons = new WeaponSystem({
   scene, vmScene, camera, world, particles, sfx, player,
   baseFov: BASE_FOV,
   getEnemies: hostiles,
+  // 一次扣扳机（可能多颗弹丸）结束后：命中标记 + 音效；伤害由 onDamage 逐颗累计
   onHit: (head, kill) => {
-    hud.hitmarker(kill);
+    hud.hitmarker(kill, head, shotDamage);
+    shotDamage = 0;
     if (head) sfx.headshot(); else sfx.hit();
   },
   // 命中敌人 → 点亮目标血条 + 爆金币
   onDamage: (target, damage, head) => {
+    shotDamage += damage;
     hud.hitEnemy(target, damage, head);
     if (coinBurstT <= 0) {
       coinBurstT = 0.12;
@@ -257,7 +283,7 @@ const weapons = new WeaponSystem({
     }
   },
   onKill: (target, head) => {
-    if (target.team !== undefined) { tdm.onPlayerKill(target); playerKills++; }
+    if (target.team !== undefined) { tdm.onPlayerKill(target); playerKills++; hud.killBanner(target.name, head); }
     else grantKill(target, head);
   },
   onRocketExplode: (pos, def) => explodeAt(pos, def.radius, def.damage, def.self ?? 0.45, player),
@@ -288,7 +314,7 @@ const weapons = new WeaponSystem({
       particles.coin(t.pos.clone().setY(t.pos.y + 1.0), _coinTarget, 3);
       n++;
     }
-    if (n) { sfx.melee(); hud.hitmarker(true); }
+    if (n) sfx.melee();
     player.shake = Math.min(1.5, player.shake + 0.4);
   },
   // 喷火器
@@ -641,6 +667,9 @@ function simulate(dt) {
     player.speedMul = (player.armorSpeedMul ?? 1) * weapons.cur.speedMul;
     player.update(dt, input, alive);
 
+    // 准星悬停在敌人身上 → 点亮其血条
+    hud.setHover(alive ? aimedHostile() : null);
+
     footstepAcc += Math.hypot(player.vel.x, player.vel.z) * dt;
     if (footstepAcc > 3.4 && player.onGround && alive) { footstepAcc = 0; sfx.step(); }
 
@@ -685,7 +714,7 @@ function simulate(dt) {
 
   hud.update(dt, {
     player, weapons, score, wave, waveState,
-    equipDef, equipCount, gadgetDef, gadgetCount,
+    equipDef, equipCount, gadgetDef, gadgetCount, gadgetCd,
     mode, tdm,
     fighters: mode === 'tdm' ? tdm.bots : enemies.enemies,
   });

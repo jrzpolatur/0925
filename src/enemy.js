@@ -109,7 +109,8 @@ export function buildBody(type) {
 
   if (type.weapon === 'melee') {
     const blade = new THREE.Group();
-    blade.position.set(0, hand, -0.10);
+    blade.position.set(0, hand, -0.08);
+    blade.rotation.x = -Math.PI / 2;   // 刀身顺着手臂方向
     armR.add(blade);
     part(0.05, 0.05, 0.30, woodMat, 0, 0, -0.10, blade);
     part(0.09, 0.04, 0.14, new THREE.MeshLambertMaterial({ color: 0xbfc7cf }), 0, 0.02, -0.32, blade);
@@ -117,7 +118,10 @@ export function buildBody(type) {
     armR.add(muzzle);
   } else {
     const gun = new THREE.Group();
-    gun.position.set(0, hand, -0.08);
+    gun.position.set(0, hand, -0.10);
+    // 枪身顺着手臂（手臂局部 -Y）延伸：手臂抬起指向前方时枪口也朝前，
+    // 之前枪身沿 -Z，举枪后枪口是垂直于手臂朝下的
+    gun.rotation.x = -Math.PI / 2;
     armR.add(gun);
     if (type.weapon === 'sniper') {
       part(0.07, 0.08, 0.46, gunMat, 0, 0, -0.12, gun);
@@ -361,15 +365,8 @@ export class Enemy {
     }
 
     // 垂直
-    this.vel.y -= 30 * dt;
-    this.pos.y += this.vel.y * dt;
-    const ground = this.world.groundBelow(this.pos.x, this.pos.y + 0.5, this.pos.z, 6);
-    this.onGround = false;
-    if (this.vel.y <= 0 && this.pos.y <= ground && ground > -40) {
-      this.pos.y = ground;
-      this.vel.y = 0;
-      this.onGround = true;
-    }
+    // 用 AABB 解析：会撞头、会正确落地，不会从方块内部"电梯"穿出去
+    this.onGround = this.world.stepVertical(this.pos, this.vel, this.radius, this.height, dt);
     if (this.pos.y < -20) { this.pos.set(0, B + 3, 0); }
 
     // 动画
@@ -379,10 +376,11 @@ export class Enemy {
     this.parts.legL.rotation.x = sw * 0.85;
     this.parts.legR.rotation.x = -sw * 0.85;
     this.parts.armL.rotation.x = -sw * 0.6;
+    // 正角度 = 手臂向身体正面（-Z）抬起
     if (t.melee) {
-      this.parts.armR.rotation.x = -1.1 + Math.sin(this.walkPhase * 4) * 0.5 * Math.min(1, hSpeed / 4);
+      this.parts.armR.rotation.x = 1.1 + Math.sin(this.walkPhase * 4) * 0.5 * Math.min(1, hSpeed / 4);
     } else {
-      this.parts.armR.rotation.x = -1.32 + Math.sin(this.walkPhase * 2.2) * 0.06;
+      this.parts.armR.rotation.x = 1.32 + Math.sin(this.walkPhase * 2.2) * 0.06;
     }
     this.parts.head.rotation.y = Math.sin(this.walkPhase * 0.6) * 0.12;
 
@@ -395,7 +393,8 @@ export class Enemy {
     }
 
     this.obj.position.copy(this.pos);
-    this.obj.rotation.y = this.face;
+    // face 是朝向目标的方位角（atan2(dx, dz)，即 +Z 基准），模型正面是 -Z，需再转 180°
+    this.obj.rotation.y = this.face + Math.PI;
     this.updateBoxes();
   }
 }
@@ -567,7 +566,9 @@ export class EnemyManager {
       const d = e.pos.distanceTo(pos);
       if (d > radius) continue;
       const k = 1 - d / radius;
-      const killed = e.damage(damage * k, e.pos.clone(), new THREE.Vector3(0, 1, 0), false, this.particles);
+      const dmg = damage * k;
+      const killed = e.damage(dmg, e.pos.clone(), new THREE.Vector3(0, 1, 0), false, this.particles);
+      this.onHurt?.(e, dmg, killed);
       if (killed) { this.onKill?.(e, false); kills++; }
     }
     return kills;

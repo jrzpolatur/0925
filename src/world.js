@@ -308,6 +308,43 @@ export class World {
     return false;
   }
 
+  /**
+   * AI 角色的垂直位移 + 碰撞解析（脚底为原点的 AABB）。
+   * - 下落：脚踩进方块时吸附到该方块顶面并落地
+   * - 上升：头顶撞到方块时停在原高度（不再穿过天花板）
+   * - 若解析后仍然重叠（本来就卡在方块里），保持原高度，绝不往上"电梯"穿模
+   * @returns {boolean} 是否落地
+   */
+  stepVertical(pos, vel, halfW, height, dt, gravity = 30) {
+    vel.y -= gravity * dt;
+    if (vel.y < -60) vel.y = -60;
+    const oldY = pos.y;
+    pos.y += vel.y * dt;
+    if (!this.boxOverlaps(pos.x, pos.y, pos.z, halfW, height)) {
+      // 贴地吸附：脚下 8cm 内有方块就算站稳，避免逐帧抖动
+      if (vel.y <= 0) {
+        const probe = pos.y - 0.08;
+        if (this.boxOverlaps(pos.x, probe, pos.z, halfW, height)) {
+          pos.y = (Math.floor(probe / B) + 1) * B;
+          vel.y = 0;
+          return true;
+        }
+      }
+      return false;
+    }
+    if (vel.y < 0) {
+      const top = (Math.floor(pos.y / B) + 1) * B;
+      // 只允许向上修正一小段（正常落地）；差得太多说明本来就卡在方块里
+      pos.y = top <= oldY + 0.3 ? top : oldY;
+      vel.y = 0;
+      return true;
+    }
+    // 上升撞头
+    pos.y = oldY;
+    vel.y = 0;
+    return false;
+  }
+
   /** 找到 (px,pz) 附近一个安全的落地点（用于敌人生成 / 传送） */
   safeSpawn(rng = Math.random) {
     const R = HALF - 5;

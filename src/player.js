@@ -3,9 +3,9 @@ import { B } from './world.js';
 
 const GRAVITY = 30;
 const JUMP_V = 11.8;
-const WALK = 11.6;
-const SPRINT = 24.5;
-const CROUCH = 6.4;
+const WALK = 7.4;          // 行走（原 11.6）
+const SPRINT = 12.8;       // 疾跑（原 24.5）
+const CROUCH = 4.2;        // 蹲走（原 6.4）
 const AIR_CTRL = 0.28;
 const ACCEL = 60;
 const MOVE_DAMP = 0.9;      // 有输入时的轻微阻尼（保证能跑到 maxSpeed）
@@ -42,6 +42,7 @@ export class Player {
 
     this.bob = 0;
     this.bobAmount = 0;
+    this.sprintT = 0;       // 0 = 行走姿态，1 = 疾跑姿态（平滑过渡，供相机 / 枪模用）
     this.recoilPitch = 0;   // 后坐力附加俯仰
     this.recoilYaw = 0;
     this.shake = 0;
@@ -174,10 +175,12 @@ export class Player {
       this.vel.set(0, 0, 0);
     }
 
-    // 走路摆动
+    // 走路 / 疾跑摆动：疾跑步频更快、幅度更大（bobAmount 在 _updateCamera 里按 sprintT 放大）
     const hSpeed = Math.hypot(this.vel.x, this.vel.z);
-    this.bob += dt * hSpeed * 1.05;
-    this.bobAmount = THREE.MathUtils.damp(this.bobAmount, this.onGround ? Math.min(hSpeed / SPRINT, 1) : 0, 8, dt);
+    this.sprintT = THREE.MathUtils.damp(this.sprintT, this.sprinting && this.onGround ? 1 : 0, 9, dt);
+    this.bob += dt * hSpeed * (1.55 + this.sprintT * 0.55);
+    const moveK = this.onGround ? Math.min(hSpeed / WALK, 1) : 0;
+    this.bobAmount = THREE.MathUtils.damp(this.bobAmount, moveK, 8, dt);
 
     this._updateCamera(dt);
   }
@@ -225,8 +228,10 @@ export class Player {
   }
 
   _updateCamera(dt) {
-    const bobY = Math.sin(this.bob * 2) * 0.055 * this.bobAmount;
-    const bobX = Math.cos(this.bob) * 0.045 * this.bobAmount;
+    // 行走：轻微上下；疾跑：幅度 ~2.2 倍 + 明显左右晃 + 轻微滚转
+    const amp = this.bobAmount * (1 + this.sprintT * 1.2);
+    const bobY = Math.sin(this.bob * 2) * 0.05 * amp;
+    const bobX = Math.cos(this.bob) * 0.04 * amp;
     const shakeX = (Math.random() - 0.5) * this.shake * 0.5;
     const shakeY = (Math.random() - 0.5) * this.shake * 0.5;
 
@@ -238,7 +243,7 @@ export class Player {
     this.camera.rotation.set(0, 0, 0);
     this.camera.rotateY(this.yaw + this.recoilYaw);
     this.camera.rotateX(this.pitch + this.recoilPitch);
-    this.camera.rotateZ(Math.sin(this.bob) * 0.012 * this.bobAmount + (Math.random() - 0.5) * this.landShake * 0.2);
+    this.camera.rotateZ(Math.sin(this.bob) * (0.010 + this.sprintT * 0.016) * this.bobAmount + (Math.random() - 0.5) * this.landShake * 0.2);
   }
 
   /** 受伤；返回实际死亡 */
