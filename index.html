@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PIXEL STRIKE 3D — 像素射击</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --neon:#7dff5a;
+    --neon2:#38e8ff;
+    --danger:#ff3b3b;
+    --gold:#ffcc33;
+    --panel:rgba(10,14,10,.72);
+    --edge:#2b3a2b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05070a;}
+  body{
+    font-family:'Press Start 2P',"Courier New",monospace;
+    color:#e8ffe8;
+    -webkit-font-smoothing:none;
+    image-rendering:pixelated;
+    user-select:none;
+    cursor:default;
+  }
+  canvas#game{display:block;width:100%;height:100%;image-rendering:pixelated;}
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10;}
+  .hidden{display:none !important;}
+
+  /* ---------- 准星 ---------- */
+  #crosshair{
+    position:absolute;left:50%;top:50%;width:34px;height:34px;
+    transform:translate(-50%,-50%);
+    transition:opacity .12s;
+  }
+  #crosshair i{position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.85);}
+  #crosshair i:nth-child(1){left:16px;top:0;width:2px;height:10px;}
+  #crosshair i:nth-child(2){left:16px;bottom:0;width:2px;height:10px;}
+  #crosshair i:nth-child(3){top:16px;left:0;height:2px;width:10px;}
+  #crosshair i:nth-child(4){top:16px;right:0;height:2px;width:10px;}
+  #crosshair.hit i{background:var(--danger);}
+  #hitmarker{
+    position:absolute;left:50%;top:50%;width:26px;height:26px;
+    transform:translate(-50%,-50%) rotate(45deg);opacity:0;
+  }
+  #hitmarker b{position:absolute;background:#fff;box-shadow:0 0 2px #000;}
+  #hitmarker b:nth-child(1){left:12px;top:0;width:2px;height:9px;}
+  #hitmarker b:nth-child(2){left:12px;bottom:0;width:2px;height:9px;}
+  #hitmarker b:nth-child(3){top:12px;left:0;height:2px;width:9px;}
+  #hitmarker b:nth-child(4){top:12px;right:0;height:2px;width:9px;}
+  #hitmarker.kill b{background:var(--danger);}
+
+  /* ---------- 面板通用 ---------- */
+  .panel{
+    background:var(--panel);
+    border:3px solid var(--edge);
+    box-shadow:0 0 0 3px rgba(0,0,0,.45), inset 0 0 0 2px rgba(125,255,90,.08);
+    padding:8px 10px;
+  }
+
+  /* ---------- 分段条（血 / 甲 / 弹匣） ---------- */
+  .segbar{display:flex;gap:2px;height:15px;}
+  .segbar i{
+    flex:1 1 0;min-width:0;background:rgba(230,245,230,.13);
+    box-shadow:inset 0 -2px 0 rgba(0,0,0,.35);
+    transition:background .06s linear;
+  }
+  .segbar i.on{background:#eef4ee;}
+  .segbar.hp i.on.low{background:#ff4a4a;}
+  .segbar.hp i.on.mid{background:#ffb03a;}
+  .segbar.armor i.on{background:#63c4ff;}
+  .segbar.ammo{height:9px;gap:1px;}
+  .segbar.ammo i{background:rgba(230,245,230,.12);}
+  .segbar.ammo i.on{background:#ffd84a;}
+  .segbar.ammo i.on.empty{background:transparent;}
+
+  /* ---------- 左下：玩家生命 ---------- */
+  #botleft{position:absolute;left:22px;bottom:18px;width:400px;}
+  #plName{
+    display:flex;align-items:center;gap:8px;font-size:10px;
+    color:#e8ffe8;text-shadow:2px 2px 0 #000;margin-bottom:5px;
+  }
+  #plName .chip{
+    font-size:8px;background:#e8ffe8;color:#0a0e0a;padding:2px 5px;
+  }
+  #hpBig{
+    font-size:26px;color:#fff;text-shadow:3px 3px 0 #000;
+    margin-bottom:4px;letter-spacing:1px;
+  }
+  #hpBig small{font-size:13px;color:#8fa88f;}
+  #hpBig.hurt{color:#ff4a4a;}
+  #armorLine{margin-top:8px;display:flex;align-items:center;gap:8px;}
+  #armorLine .lb{font-size:8px;color:#78a4c8;width:52px;}
+  #armorNum{font-size:9px;color:#9fd8ff;width:28px;text-align:right;}
+  #armorLine .segbar{flex:1;height:9px;}
+  #miscLine{
+    margin-top:10px;font-size:9px;color:#a9c0a9;line-height:1.9;
+  }
+  #miscLine b{color:var(--gold);}
+  #hint{color:#5d755d;font-size:8px;margin-top:6px;}
+
+  /* ---------- 右上：小地图 / 击杀播报 ---------- */
+  #topright{position:absolute;right:16px;top:16px;width:170px;}
+  #minimapWrap{position:relative;width:170px;height:170px;border:3px solid var(--edge);background:#0a1208;}
+  #minimap{width:100%;height:100%;image-rendering:pixelated;display:block;}
+  #killfeed{margin-top:8px;font-size:8px;line-height:1.7;text-align:right;}
+  #killfeed div{
+    background:rgba(10,14,10,.7);border-left:3px solid var(--neon);
+    padding:3px 5px;margin-bottom:3px;
+  }
+  #killfeed div b{color:var(--gold);}
+
+  /* ---------- 顶部中间：波次 / 分数 ---------- */
+  #topcenter{
+    position:absolute;left:50%;top:14px;transform:translateX(-50%);
+    text-align:center;min-width:230px;
+  }
+  #score{font-size:18px;color:var(--gold);text-shadow:2px 2px 0 #000;}
+  #wave{font-size:10px;color:var(--neon);margin-top:6px;text-shadow:1px 1px 0 #000;}
+  #tdmScore{font-size:13px;margin-top:4px;text-shadow:2px 2px 0 #000;letter-spacing:1px;}
+  #waveMsg{font-size:12px;color:var(--danger);margin-top:6px;min-height:0;text-shadow:1px 1px 0 #000;}
+
+  /* ---------- 右下：武器 / 弹药 ---------- */
+  #botright{position:absolute;right:22px;bottom:18px;width:260px;text-align:right;}
+  #wName{font-size:14px;color:#fff;text-shadow:2px 2px 0 #000;letter-spacing:1px;}
+  #ammo{font-size:24px;color:#fff;text-shadow:3px 3px 0 #000;margin-top:2px;}
+  #ammo small{font-size:12px;color:#9fb79f;}
+  #ammo.low{color:var(--danger);}
+  #ammoBar{max-width:180px;margin:5px 0 0 auto;}
+  #reloadBar{
+    margin-top:6px;height:8px;border:2px solid var(--edge);background:#12180f;display:none;
+  }
+  #reloadBar > span{display:block;height:100%;width:0;background:var(--gold);}
+  #reloading{font-size:9px;color:var(--gold);display:none;margin-top:4px;}
+
+  /* ---------- 右侧：按键提示 ---------- */
+  #actions{
+    position:absolute;right:22px;bottom:168px;text-align:right;
+    font-size:9px;color:#c9d6c9;line-height:1;text-shadow:1px 1px 0 #000;
+  }
+  #actions .row{display:flex;justify-content:flex-end;align-items:center;gap:9px;margin-top:7px;}
+  #actions .key{
+    background:#eef4ee;color:#0a0e0a;padding:3px 6px;font-size:8px;
+    min-width:22px;text-align:center;
+  }
+  #actions .key.dim{background:rgba(238,244,238,.35);}
+
+  /* ---------- 底部中间：武器槽 ---------- */
+  #slots{
+    position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
+    display:flex;gap:6px;
+  }
+  .slot{
+    width:80px;padding:5px 4px;text-align:center;font-size:8px;
+    background:rgba(10,14,10,.62);border:2px solid var(--edge);color:#8fa88f;
+    line-height:1.5;
+  }
+  .slot .k{color:var(--gold);font-size:9px;}
+  .slot.active{
+    border-color:var(--neon);color:#fff;
+    box-shadow:inset 0 0 12px rgba(125,255,90,.14);
+  }
+  .slot.active .k{color:var(--neon);}
+
+  /* ---------- 敌人血条（命中时显示） ---------- */
+  .ebar{
+    position:absolute;width:148px;transform:translate(-50%,-100%);
+    opacity:0;transition:opacity .12s linear;
+  }
+  .ebar .nm{
+    font-size:8px;color:#fff;text-align:center;margin-bottom:3px;
+    text-shadow:1px 1px 0 #000;white-space:nowrap;
+  }
+  .ebar .rail{
+    height:10px;background:rgba(0,0,0,.55);
+    box-shadow:0 0 0 2px rgba(0,0,0,.7);
+    overflow:hidden;
+  }
+  .ebar .fill{height:100%;width:100%;background:#ff4040;transition:width .08s linear;}
+  .ebar.friend .fill{background:#54c8ff;}
+  .ebar.hit .rail{box-shadow:0 0 0 2px rgba(0,0,0,.7), 0 0 14px rgba(255,70,70,.85);}
+  .ebar .dmg{
+    position:absolute;right:-4px;top:-16px;font-size:11px;color:#fff;
+    text-shadow:2px 2px 0 #000;
+  }
+
+  /* ---------- 受伤 / 低血 渐晕 ---------- */
+  #vignette{
+    position:absolute;inset:0;pointer-events:none;opacity:0;
+    background:radial-gradient(ellipse at center, rgba(255,0,0,0) 45%, rgba(190,0,0,.85) 100%);
+    transition:opacity .18s;
+  }
+  #lowhp{
+    position:absolute;inset:0;pointer-events:none;opacity:0;
+    background:radial-gradient(ellipse at center, rgba(255,0,0,0) 40%, rgba(255,0,0,.5) 100%);
+  }
+  #lowhp.on{animation:pulse 1.1s infinite;}
+  @keyframes pulse{0%,100%{opacity:.25}50%{opacity:.6}}
+
+  /* ---------- 死亡瞬间红闪 ---------- */
+  #deathFlash{
+    position:absolute;inset:0;pointer-events:none;background:#8a0000;opacity:0;
+    transition:opacity .28s;
+  }
+  #deathFlash.on{opacity:.75;transition:opacity 0s;}
+
+  /* ---------- 狙击镜 ---------- */
+  #scope{position:absolute;inset:0;display:none;}
+  #scope::before{
+    content:"";position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(0,0,0,.55);
+  }
+  #scope::after{
+    content:"";position:absolute;top:0;bottom:0;left:50%;width:2px;background:rgba(0,0,0,.55);
+  }
+  #scope .ring{
+    position:absolute;left:50%;top:50%;width:78vmin;height:78vmin;transform:translate(-50%,-50%);
+    border-radius:50%;
+    box-shadow:0 0 0 100vmax rgba(0,0,0,.96);
+    border:3px solid rgba(0,0,0,.9);
+  }
+
+  /* ---------- 遮罩层（开始 / 暂停 / 结算） ---------- */
+  #overlay{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at center, rgba(6,20,8,.86), rgba(0,0,0,.96));
+    text-align:center;overflow:auto;
+  }
+  #overlay .box{max-width:1120px;padding:22px 28px;}
+  #boxSimple{max-width:680px;padding:28px 34px;}
+
+  /* ---------- 配装界面 ---------- */
+  #reticle{
+    position:absolute;left:50%;top:50%;width:440px;height:440px;
+    transform:translate(-50%,-50%);pointer-events:none;
+  }
+  .loadout{display:flex;gap:20px;margin-top:16px;text-align:left;}
+  .ld-left{flex:1 1 auto;min-width:0;}
+  .ld-right{flex:0 0 360px;text-align:center;}
+  #preview{
+    width:360px;height:260px;display:block;image-rendering:pixelated;
+    border:3px solid var(--edge);background:#0a1208;
+  }
+  .slotrow{margin-bottom:12px;}
+  .rowhead{
+    font-size:9px;color:var(--neon);margin-bottom:6px;letter-spacing:1px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .rowhead .badge{
+    display:inline-block;min-width:16px;padding:2px 4px;text-align:center;
+    background:var(--neon);color:#04140a;font-size:8px;
+  }
+  .opthead{font-size:8px;color:#7d8f7d;margin:6px 0 4px;letter-spacing:1px;}
+  .cards{display:flex;flex-wrap:wrap;gap:6px;}
+  .card{
+    cursor:pointer;padding:7px 9px;min-width:112px;
+    background:rgba(16,22,16,.9);border:3px solid var(--edge);
+    font-size:9px;color:#a9c0a9;line-height:1.6;
+    transition:border-color .1s,color .1s,background .1s;
+  }
+  .card:hover{border-color:#5d7a5d;color:#e8ffe8;}
+  .card .n{color:#fff;}
+  .card .d{font-size:8px;color:#6d856d;margin-top:3px;}
+  .card.on{
+    border-color:var(--neon);color:#fff;background:rgba(30,52,30,.95);
+    box-shadow:inset 0 0 14px rgba(125,255,90,.16);
+  }
+  .card.on .n{color:var(--neon);}
+  .card.off{opacity:.3;cursor:not-allowed;}
+  .cards.small .card{min-width:92px;padding:5px 7px;font-size:8px;}
+  .stats{
+    margin-top:10px;font-size:8px;line-height:2;color:#9fb79f;text-align:left;
+    border:3px solid var(--edge);background:rgba(10,14,10,.72);padding:10px;
+  }
+  .stats b{color:var(--gold);}
+  .bar-mini{height:6px;background:#12180f;border:2px solid var(--edge);margin:2px 0 6px;}
+  .bar-mini span{display:block;height:100%;background:var(--neon);}
+  .title{
+    font-size:34px;color:var(--neon);
+    text-shadow:4px 4px 0 #06210a, 0 0 24px rgba(125,255,90,.35);
+    letter-spacing:2px;
+  }
+  .sub{font-size:10px;color:#8fa88f;margin-top:12px;line-height:2;}
+  .keys{
+    margin:20px auto 0;font-size:9px;color:#b9d4b9;line-height:2.3;text-align:left;
+    display:inline-block;
+  }
+  .keys b{color:var(--gold);display:inline-block;min-width:96px;}
+  .btn{
+    pointer-events:auto;cursor:pointer;display:inline-block;margin-top:24px;
+    padding:14px 30px;font-family:inherit;font-size:13px;color:#04140a;
+    background:var(--neon);border:0;
+    box-shadow:0 6px 0 #2f8c2a, 0 0 0 3px #04140a;
+  }
+  .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #2f8c2a, 0 0 0 3px #04140a;}
+  .btn.gray{background:#9fb79f;box-shadow:0 6px 0 #546554, 0 0 0 3px #04140a;}
+  #resultLine{font-size:11px;color:var(--gold);margin-top:18px;line-height:2.1;}
+  #resultLine b{color:#fff;}
+  .tag{font-size:9px;color:#5d755d;margin-top:22px;}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <canvas id="reticle" width="512" height="512"></canvas>
+  <div id="hitmarker"><b></b><b></b><b></b><b></b></div>
+  <div id="scope"><div class="ring"></div></div>
+
+  <div id="enemybars"></div>
+
+  <div id="topcenter">
+    <div id="score">0</div>
+    <div id="wave">WAVE 1 · 剩余 0</div>
+    <div id="tdmScore" class="hidden"></div>
+    <div id="waveMsg"></div>
+  </div>
+
+  <div id="topright">
+    <div id="minimapWrap"><canvas id="minimap" width="96" height="96"></canvas></div>
+    <div id="killfeed"></div>
+  </div>
+
+  <!-- 左下：玩家生命 -->
+  <div id="botleft">
+    <div id="plName"><canvas id="avatar" width="16" height="16"></canvas><span id="plNameText">L PAPA</span><span class="chip" id="plChip">你</span></div>
+    <div id="hpBig">100 <small>/ 100</small></div>
+    <div class="segbar hp" id="hpSegs"></div>
+    <div id="armorLine">
+      <span class="lb">护甲</span>
+      <div class="segbar armor" id="armorSegs"></div>
+      <span id="armorNum">0</span>
+    </div>
+    <div id="miscLine">
+      <span id="nade">手雷 ×3</span>　<span id="gadget">护盾 ×1</span>
+    </div>
+    <div id="hint">ESC 暂停</div>
+  </div>
+
+  <!-- 右下：武器 / 弹药 -->
+  <div id="botright">
+    <div id="wName">PISTOL</div>
+    <div id="ammo">12<small> / ∞</small></div>
+    <div class="segbar ammo" id="ammoSegs"></div>
+    <div id="reloading">RELOADING...</div>
+    <div id="reloadBar"><span></span></div>
+  </div>
+
+  <div id="actions">
+    <div class="row"><span>开火</span><span class="key">LMB</span></div>
+    <div class="row"><span>举枪瞄准</span><span class="key">RMB</span></div>
+    <div class="row"><span>装填</span><span class="key">R</span></div>
+  </div>
+
+  <div id="slots"></div>
+
+  <div id="vignette"></div>
+  <div id="lowhp"></div>
+  <div id="deathFlash"></div>
+</div>
+
+<div id="overlay">
+  <div class="box" id="boxMain">
+    <div class="title">PIXEL STRIKE 3D</div>
+    <div class="sub">选择你的配装，然后杀出去</div>
+    <div class="loadout">
+      <div class="ld-left">
+        <div class="slotrow">
+          <div class="rowhead"><span class="badge">▸</span>模式 · MODE</div>
+          <div class="cards" data-group="mode"></div>
+        </div>
+        <div class="slotrow">
+          <div class="rowhead"><span class="badge">⚙</span>设置 · SETTINGS</div>
+          <div class="cards small" data-group="settings"></div>
+        </div>
+        <div class="slotrow" id="rowPrimary">
+          <div class="rowhead"><span class="badge">1</span>主武器 · PRIMARY</div>
+          <div class="cards" data-group="primary"></div>
+          <div class="opthead">瞄具 · OPTIC</div>
+          <div class="cards small" data-group="primary-optic"></div>
+        </div>
+        <div class="slotrow" id="rowSecondary">
+          <div class="rowhead"><span class="badge">2</span>副武器 · BACKUP</div>
+          <div class="cards" data-group="secondary"></div>
+          <div class="opthead">瞄具 · OPTIC</div>
+          <div class="cards small" data-group="secondary-optic"></div>
+        </div>
+        <div class="slotrow">
+          <div class="rowhead"><span class="badge">3</span>特殊武器 · SPECIAL</div>
+          <div class="cards small" data-group="special"></div>
+        </div>
+        <div class="slotrow">
+          <div class="rowhead"><span class="badge">G</span>装备 · EQUIPMENT</div>
+          <div class="cards small" data-group="equip"></div>
+        </div>
+        <div class="slotrow">
+          <div class="rowhead"><span class="badge">+</span>护甲 · ARMOR</div>
+          <div class="cards small" data-group="armor"></div>
+        </div>
+        <div class="slotrow">
+          <div class="rowhead"><span class="badge">F</span>道具 · GADGET</div>
+          <div class="cards small" data-group="gadget"></div>
+        </div>
+      </div>
+      <div class="ld-right">
+        <canvas id="preview" width="360" height="260"></canvas>
+        <div id="statList" class="stats"></div>
+        <div class="keys">
+          <b>W A S D</b>移动<br>
+          <b>鼠标</b>视角 / 左键射击<br>
+          <b>右键</b>举枪瞄准（看瞄具）<br>
+          <b>空格</b>跳跃　<b>Shift</b>疾跑　<b>Ctrl</b>蹲下<br>
+          <b>R</b>换弹　<b>1 / 2 / 3 / 滚轮</b>换武器<br>
+          <b>G</b>投掷装备　<b>F</b>使用道具<br>
+          <b>ESC</b>暂停
+        </div>
+      </div>
+    </div>
+    <div id="resultLine"></div>
+    <div><button class="btn" id="ovBtn">出击</button></div>
+    <div class="tag">v0.2.0 · 点击画面锁定鼠标</div>
+  </div>
+
+  <div class="box hidden" id="boxSimple">
+    <div class="title" id="ovTitle">已暂停</div>
+    <div class="sub" id="ovSub"></div>
+    <div id="resultLine2"></div>
+    <div><button class="btn" id="ovBtn2">继续</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

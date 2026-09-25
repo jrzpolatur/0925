@@ -1,0 +1,10 @@
+{
+  "name": "pixel-strike-3d",
+  "version": "0.2.0",
+  "description": "像素风格 3D 射击游戏（仿 Pixel Gun 3D）—— Three.js 体素 FPS",
+  "private": true,
+  "scripts": {
+    "start": "node serve.js",
+    "dev": "node serve.js"
+  }
+}
