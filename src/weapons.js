@@ -845,10 +845,12 @@ export class Grenades {
 
 // ---------------------------------------------------------------- 武器系统
 export class WeaponSystem {
-  constructor({ scene, vmScene, camera, world, particles, sfx, getEnemies, onHit, onKill, player, onRocketExplode, baseFov = 80 }) {
+  constructor({ scene, vmScene, camera, world, particles, sfx, getEnemies, onHit, onKill, onDamage, onMelee, onDash, onFlame, player, onRocketExplode, baseFov = 80 }) {
     this.scene = scene; this.vmScene = vmScene; this.camera = camera; this.world = world;
     this.particles = particles; this.sfx = sfx;
     this.getEnemies = getEnemies; this.onHit = onHit; this.onKill = onKill;
+    // 之前这几个回调没有保存下来 → 命中不点亮血条、大锤 / 喷火器无效
+    this.onDamage = onDamage; this.onMelee = onMelee; this.onDash = onDash; this.onFlame = onFlame;
     this.player = player;
     this.baseFov = baseFov;   // 腰射基础 FOV，用于换算开镜倍率
     this.coinTarget = null;   // 金币吸附点（外部指向玩家眼睛位置）
@@ -1282,8 +1284,11 @@ export class WeaponSystem {
     this.swayX = THREE.MathUtils.damp(this.swayX, targetSwayX, 9, dt);
     this.swayY = THREE.MathUtils.damp(this.swayY, targetSwayY, 9, dt);
 
-    const bobX = Math.cos(player.bob) * 0.018 * player.bobAmount;
-    const bobY = Math.sin(player.bob * 2) * 0.016 * player.bobAmount;
+    // 行走：小幅平移晃动；疾跑：幅度更大 + 8 字形晃动
+    const sp = this.aiming ? 0 : player.sprintT;
+    const bobAmp = player.bobAmount * (1 + sp * 1.6);
+    const bobX = Math.cos(player.bob) * 0.018 * bobAmp;
+    const bobY = (Math.sin(player.bob * 2) * 0.016 + Math.abs(Math.sin(player.bob)) * 0.02 * sp) * bobAmp;
 
     const hip = HIP[w.id] || HIP.rifle;
     const hipX = hip[0], hipY = hip[1], hipZ = hip[2];
@@ -1327,10 +1332,18 @@ export class WeaponSystem {
       this.root.position.y += ease * 0.16;
     }
 
-    if (player.sprinting && !this.aiming) {
-      this.root.rotation.z = THREE.MathUtils.damp(this.root.rotation.z, 0.85, 8, dt);
-      this.root.rotation.y = THREE.MathUtils.damp(this.root.rotation.y, -0.42, 8, dt);
-      this.root.rotation.x = THREE.MathUtils.damp(this.root.rotation.x, -0.18, 8, dt);
+    // 疾跑姿态：枪口斜向下压、枪身内收，随 sprintT 平滑过渡。
+    // 之前是对每帧重算出来的 rotation 做 damp，结果每帧只挪 ~10%，姿态几乎看不出来。
+    if (sp > 0.001) {
+      const ease = sp * sp * (3 - 2 * sp);
+      this.root.rotation.z += 0.78 * ease;
+      this.root.rotation.y += -0.46 * ease;
+      this.root.rotation.x += -0.30 * ease;
+      this.root.position.x += -0.06 * ease;
+      this.root.position.y += -0.07 * ease;
+      this.root.position.z += 0.05 * ease;
+      // 疾跑时跟着步伐前后甩
+      this.root.rotation.x += Math.sin(player.bob) * 0.06 * ease * player.bobAmount;
     }
 
     if (m.flash.visible) {
